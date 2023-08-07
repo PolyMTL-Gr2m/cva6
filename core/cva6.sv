@@ -14,24 +14,116 @@
 
 
 module cva6 import ariane_pkg::*; #(
+  parameter ariane_pkg::cva6_cfg_t CVA6Cfg = {
+    unsigned'(cva6_config_pkg::CVA6ConfigNrCommitPorts),  // NrCommitPorts
+    unsigned'(cva6_config_pkg::CVA6ConfigRvfiTrace),      // IsRVFI
+    unsigned'(cva6_config_pkg::CVA6ConfigAxiAddrWidth),   // AxiAddrWidth
+    unsigned'(cva6_config_pkg::CVA6ConfigAxiDataWidth),   // AxiDataWidth
+    unsigned'(cva6_config_pkg::CVA6ConfigAxiIdWidth),     // AxiIdWidth
+    unsigned'(cva6_config_pkg::CVA6ConfigDataUserWidth)   // AxiUserWidth
+  },
+  parameter type rvfi_instr_t = struct packed {
+    logic [ariane_pkg::NRET-1:0]                  valid;
+    logic [ariane_pkg::NRET*64-1:0]               order;
+    logic [ariane_pkg::NRET*ariane_pkg::ILEN-1:0] insn;
+    logic [ariane_pkg::NRET-1:0]                  trap;
+    logic [ariane_pkg::NRET*riscv::XLEN-1:0]      cause;
+    logic [ariane_pkg::NRET-1:0]                  halt;
+    logic [ariane_pkg::NRET-1:0]                  intr;
+    logic [ariane_pkg::NRET*2-1:0]                mode;
+    logic [ariane_pkg::NRET*2-1:0]                ixl;
+    logic [ariane_pkg::NRET*5-1:0]                rs1_addr;
+    logic [ariane_pkg::NRET*5-1:0]                rs2_addr;
+    logic [ariane_pkg::NRET*riscv::XLEN-1:0]      rs1_rdata;
+    logic [ariane_pkg::NRET*riscv::XLEN-1:0]      rs2_rdata;
+    logic [ariane_pkg::NRET*5-1:0]                rd_addr;
+    logic [ariane_pkg::NRET*riscv::XLEN-1:0]      rd_wdata;
+    logic [ariane_pkg::NRET*riscv::XLEN-1:0]      pc_rdata;
+    logic [ariane_pkg::NRET*riscv::XLEN-1:0]      pc_wdata;
+    logic [ariane_pkg::NRET*riscv::VLEN-1:0]      mem_addr;
+    logic [ariane_pkg::NRET*riscv::PLEN-1:0]      mem_paddr;
+    logic [ariane_pkg::NRET*(riscv::XLEN/8)-1:0]  mem_rmask;
+    logic [ariane_pkg::NRET*(riscv::XLEN/8)-1:0]  mem_wmask;
+    logic [ariane_pkg::NRET*riscv::XLEN-1:0]      mem_rdata;
+    logic [ariane_pkg::NRET*riscv::XLEN-1:0]      mem_wdata;
+  },
+  // AXI types
+  parameter type axi_ar_chan_t = struct packed {
+        logic [CVA6Cfg.AxiIdWidth-1:0]       id;
+        logic [CVA6Cfg.AxiAddrWidth-1:0]     addr;
+        axi_pkg::len_t                       len;
+        axi_pkg::size_t                      size;
+        axi_pkg::burst_t                     burst;
+        logic                                lock;
+        axi_pkg::cache_t                     cache;
+        axi_pkg::prot_t                      prot;
+        axi_pkg::qos_t                       qos;
+        axi_pkg::region_t                    region;
+        logic [CVA6Cfg.AxiUserWidth-1:0]     user;
+  },
+  parameter type axi_aw_chan_t = struct packed {
+        logic [CVA6Cfg.AxiIdWidth-1:0]       id;
+        logic [CVA6Cfg.AxiAddrWidth-1:0]     addr;
+        axi_pkg::len_t                       len;
+        axi_pkg::size_t                      size;
+        axi_pkg::burst_t                     burst;
+        logic                                lock;
+        axi_pkg::cache_t                     cache;
+        axi_pkg::prot_t                      prot;
+        axi_pkg::qos_t                       qos;
+        axi_pkg::region_t                    region;
+        axi_pkg::atop_t                      atop;
+        logic [CVA6Cfg.AxiUserWidth-1:0]     user;
+  },
+  parameter type axi_w_chan_t = struct packed {
+        logic [CVA6Cfg.AxiDataWidth-1:0]     data;
+        logic [(CVA6Cfg.AxiDataWidth/8)-1:0] strb;
+        logic                                last;
+        logic [CVA6Cfg.AxiUserWidth-1:0]     user;
+  },
+  parameter type b_chan_t = struct packed {
+        logic [CVA6Cfg.AxiIdWidth-1:0]       id;
+        axi_pkg::resp_t                      resp;
+        logic [CVA6Cfg.AxiUserWidth-1:0]     user;
+  },
+  parameter type r_chan_t = struct packed {
+        logic [CVA6Cfg.AxiIdWidth-1:0]       id;
+        logic [CVA6Cfg.AxiDataWidth-1:0]     data;
+        axi_pkg::resp_t                      resp;
+        logic                                last;
+        logic [CVA6Cfg.AxiUserWidth-1:0]     user;
+  },
+  parameter type noc_req_t = struct packed {
+        axi_aw_chan_t                aw;
+        logic                        aw_valid;
+        axi_w_chan_t                 w;
+        logic                        w_valid;
+        logic                        b_ready;
+        axi_ar_chan_t                ar;
+        logic                        ar_valid;
+        logic                        r_ready;
+  },
+  parameter type noc_resp_t = struct packed {
+        logic                        aw_ready;
+        logic                        ar_ready;
+        logic                        w_ready;
+        logic                        b_valid;
+        b_chan_t                     b;
+        logic                        r_valid;
+        r_chan_t                     r;
+  },
+  //
   parameter ariane_pkg::ariane_cfg_t ArianeCfg     = ariane_pkg::ArianeDefaultConfig,
+  parameter type      acc_cfg_t = logic,
+  parameter acc_cfg_t AccCfg    = '0,
   parameter type cvxif_req_t  = cvxif_pkg::cvxif_req_t,
-  parameter type cvxif_resp_t = cvxif_pkg::cvxif_resp_t,
-  parameter int unsigned AxiAddrWidth = ariane_axi::AddrWidth,
-  parameter int unsigned AxiDataWidth = ariane_axi::DataWidth,
-  parameter int unsigned AxiIdWidth   = ariane_axi::IdWidth,
-  parameter type axi_ar_chan_t = ariane_axi::ar_chan_t,
-  parameter type axi_aw_chan_t = ariane_axi::aw_chan_t,
-  parameter type axi_w_chan_t  = ariane_axi::w_chan_t,
-  parameter type axi_req_t = ariane_axi::req_t,
-  parameter type axi_rsp_t = ariane_axi::resp_t
+  parameter type cvxif_resp_t = cvxif_pkg::cvxif_resp_t
 ) (
   input  logic                         clk_i,
   input  logic                         rst_ni,
   // Core ID, Cluster ID and boot address are considered more or less static
   input  logic [riscv::VLEN-1:0]       boot_addr_i,  // reset boot address
   input  logic [riscv::XLEN-1:0]       hart_id_i,    // hart id in a multicore environment (reflected in a CSR)
-
   // Interrupt inputs
   input  logic [1:0]                   irq_i,        // level sensitive IR lines, mip & sip (async)
   input  logic                         ipi_i,        // inter-processor interrupts (async)
@@ -40,18 +132,13 @@ module cva6 import ariane_pkg::*; #(
   input  logic                         debug_req_i,  // debug request (async)
   // RISC-V formal interface port (`rvfi`):
   // Can be left open when formal tracing is not needed.
-  output ariane_pkg::rvfi_port_t       rvfi_o,
+  output rvfi_instr_t [CVA6Cfg.NrCommitPorts-1:0] rvfi_o,
   output cvxif_req_t                   cvxif_req_o,
   input  cvxif_resp_t                  cvxif_resp_i,
-  // L15 (memory side)
-  output wt_cache_pkg::l15_req_t       l15_req_o,
-  input  wt_cache_pkg::l15_rtrn_t      l15_rtrn_i,
-  // memory side, AXI Master
-  output axi_req_t                     axi_req_o,
-  input  axi_rsp_t                     axi_resp_i
+  // memory side
+  output noc_req_t                     noc_req_o,
+  input  noc_resp_t                    noc_resp_i
 );
-
-  localparam ariane_pkg::cva6_cfg_t cva6_cfg = ariane_pkg::cva6_cfg_empty;
 
   // ------------------------------------------
   // Global Signals
@@ -62,7 +149,7 @@ module cva6 import ariane_pkg::*; #(
   bp_resolve_t                resolved_branch;
   logic [riscv::VLEN-1:0]     pc_commit;
   logic                       eret;
-  logic [NR_COMMIT_PORTS-1:0] commit_ack;
+  logic [CVA6Cfg.NrCommitPorts-1:0] commit_ack;
 
   localparam NumPorts = 3;
   cvxif_pkg::cvxif_req_t      cvxif_req;
@@ -167,6 +254,7 @@ module cva6 import ariane_pkg::*; #(
   logic                     lsu_commit_commit_ex;
   logic                     lsu_commit_ready_ex_commit;
   logic [TRANS_ID_BITS-1:0] lsu_commit_trans_id;
+  logic                     stall_st_pending_ex;
   logic                     no_st_pending_ex;
   logic                     no_st_pending_commit;
   logic                     amo_valid_commit;
@@ -175,14 +263,14 @@ module cva6 import ariane_pkg::*; #(
   // --------------
   // ID <-> COMMIT
   // --------------
-  scoreboard_entry_t [NR_COMMIT_PORTS-1:0] commit_instr_id_commit;
+  scoreboard_entry_t [CVA6Cfg.NrCommitPorts-1:0] commit_instr_id_commit;
   // --------------
   // COMMIT <-> ID
   // --------------
-  logic [NR_COMMIT_PORTS-1:0][4:0]  waddr_commit_id;
-  logic [NR_COMMIT_PORTS-1:0][riscv::XLEN-1:0] wdata_commit_id;
-  logic [NR_COMMIT_PORTS-1:0]       we_gpr_commit_id;
-  logic [NR_COMMIT_PORTS-1:0]       we_fpr_commit_id;
+  logic [CVA6Cfg.NrCommitPorts-1:0][4:0]  waddr_commit_id;
+  logic [CVA6Cfg.NrCommitPorts-1:0][riscv::XLEN-1:0] wdata_commit_id;
+  logic [CVA6Cfg.NrCommitPorts-1:0]       we_gpr_commit_id;
+  logic [CVA6Cfg.NrCommitPorts-1:0]       we_fpr_commit_id;
   // --------------
   // CSR <-> *
   // --------------
@@ -250,11 +338,12 @@ module cva6 import ariane_pkg::*; #(
   logic                     dcache_flush_ack_cache_ctrl;
   logic                     set_debug_pc;
   logic                     flush_commit;
+  logic                     flush_acc;
 
-  icache_areq_i_t           icache_areq_ex_cache;
-  icache_areq_o_t           icache_areq_cache_ex;
-  icache_dreq_i_t           icache_dreq_if_cache;
-  icache_dreq_o_t           icache_dreq_cache_if;
+  icache_areq_t           icache_areq_ex_cache;
+  icache_arsp_t           icache_areq_cache_ex;
+  icache_dreq_t           icache_dreq_if_cache;
+  icache_drsp_t           icache_dreq_cache_if;
 
   amo_req_t                 amo_req;
   amo_resp_t                amo_resp;
@@ -283,11 +372,12 @@ module cva6 import ariane_pkg::*; #(
   // Frontend
   // --------------
   frontend #(
-    .cva6_cfg  ( cva6_cfg  ),
+    .CVA6Cfg   ( CVA6Cfg   ),
     .ArianeCfg ( ArianeCfg )
   ) i_frontend (
     .flush_i             ( flush_ctrl_if                 ), // not entirely correct
     .flush_bp_i          ( 1'b0                          ),
+    .halt_i              ( halt_ctrl                     ),
     .debug_mode_i        ( debug_mode                    ),
     .boot_addr_i         ( boot_addr_i[riscv::VLEN-1:0]  ),
     .icache_dreq_i       ( icache_dreq_cache_if          ),
@@ -310,7 +400,7 @@ module cva6 import ariane_pkg::*; #(
   // ID
   // ---------
   id_stage #(
-    .cva6_cfg   ( cva6_cfg   )
+    .CVA6Cfg    ( CVA6Cfg    )
   ) id_stage_i (
     .clk_i,
     .rst_ni,
@@ -368,10 +458,9 @@ module cva6 import ariane_pkg::*; #(
   // Issue
   // ---------
   issue_stage #(
-    .cva6_cfg                   ( cva6_cfg                     ),
+    .CVA6Cfg                    ( CVA6Cfg                      ),
     .NR_ENTRIES                 ( NR_SB_ENTRIES                ),
-    .NR_WB_PORTS                ( NR_WB_PORTS                  ),
-    .NR_COMMIT_PORTS            ( NR_COMMIT_PORTS              )
+    .NR_WB_PORTS                ( NR_WB_PORTS                  )
   ) issue_stage_i (
     .clk_i,
     .rst_ni,
@@ -445,7 +534,7 @@ module cva6 import ariane_pkg::*; #(
   // EX
   // ---------
   ex_stage #(
-    .cva6_cfg   ( cva6_cfg   ),
+    .CVA6Cfg    ( CVA6Cfg    ),
     .ASID_WIDTH ( ASID_WIDTH ),
     .ArianeCfg  ( ArianeCfg  )
   ) ex_stage_i (
@@ -494,6 +583,7 @@ module cva6 import ariane_pkg::*; #(
     .lsu_commit_i           ( lsu_commit_commit_ex        ), // from commit
     .lsu_commit_ready_o     ( lsu_commit_ready_ex_commit  ), // to commit
     .commit_tran_id_i       ( lsu_commit_trans_id         ), // from commit
+    .stall_st_pending_i     ( stall_st_pending_ex         ),
     .no_st_pending_o        ( no_st_pending_ex            ),
     // FPU
     .fpu_ready_o            ( fpu_ready_ex_id             ),
@@ -562,8 +652,7 @@ module cva6 import ariane_pkg::*; #(
   assign no_st_pending_commit = no_st_pending_ex & dcache_commit_wbuffer_empty;
 
   commit_stage #(
-    .cva6_cfg        ( cva6_cfg        ),
-    .NR_COMMIT_PORTS ( NR_COMMIT_PORTS )
+    .CVA6Cfg         ( CVA6Cfg         )
   ) commit_stage_i (
     .clk_i,
     .rst_ni,
@@ -602,10 +691,9 @@ module cva6 import ariane_pkg::*; #(
   // CSR
   // ---------
   csr_regfile #(
-    .cva6_cfg               ( cva6_cfg                      ),
+    .CVA6Cfg                ( CVA6Cfg                       ),
     .AsidWidth              ( ASID_WIDTH                    ),
     .DmBaseAddress          ( ArianeCfg.DmBaseAddress       ),
-    .NrCommitPorts          ( NR_COMMIT_PORTS               ),
     .NrPMPEntries           ( ArianeCfg.NrPMPEntries        ),
     .MHPMCounterNum         ( MHPMCounterNum                )
   ) csr_regfile_i (
@@ -672,7 +760,7 @@ module cva6 import ariane_pkg::*; #(
   // ------------------------
   if (PERF_COUNTER_EN) begin: gen_perf_counter
   perf_counters #(
-    .cva6_cfg            ( cva6_cfg                  ),
+    .CVA6Cfg             ( CVA6Cfg                   ),
     .NumPorts            ( NumPorts                  )
   ) perf_counters_i (
     .clk_i               ( clk_i                     ),
@@ -708,7 +796,7 @@ module cva6 import ariane_pkg::*; #(
   // Controller
   // ------------
   controller #(
-    .cva6_cfg   ( cva6_cfg   )
+    .CVA6Cfg    ( CVA6Cfg    )
   ) controller_i (
     // flush ports
     .set_pc_commit_o        ( set_pc_ctrl_pcgen             ),
@@ -734,6 +822,7 @@ module cva6 import ariane_pkg::*; #(
     .fence_i                ( fence_commit_controller       ),
     .sfence_vma_i           ( sfence_vma_commit_controller  ),
     .flush_commit_i         ( flush_commit                  ),
+    .flush_acc_i            ( flush_acc                     ),
 
     .flush_icache_o         ( icache_flush_ctrl_cache       ),
     .*
@@ -746,14 +835,11 @@ module cva6 import ariane_pkg::*; #(
   if (DCACHE_TYPE == int'(cva6_config_pkg::WT)) begin
   // this is a cache subsystem that is compatible with OpenPiton
   wt_cache_subsystem #(
-    .cva6_cfg             ( cva6_cfg  ),
+    .CVA6Cfg              ( CVA6Cfg   ),
     .ArianeCfg            ( ArianeCfg ),
     .NumPorts             ( NumPorts  ),
-    .AxiAddrWidth         ( AxiAddrWidth ),
-    .AxiDataWidth         ( AxiDataWidth ),
-    .AxiIdWidth           ( AxiIdWidth ),
-    .axi_req_t            ( axi_req_t ),
-    .axi_rsp_t            ( axi_rsp_t )
+    .noc_req_t            ( noc_req_t ),
+    .noc_resp_t           ( noc_resp_t )
   ) i_cache_subsystem (
     // to D$
     .clk_i                 ( clk_i                       ),
@@ -781,14 +867,9 @@ module cva6 import ariane_pkg::*; #(
     // write buffer status
     .wbuffer_empty_o       ( dcache_commit_wbuffer_empty ),
     .wbuffer_not_ni_o      ( dcache_commit_wbuffer_not_ni ),
-`ifdef PITON_ARIANE
-    .l15_req_o             ( l15_req_o                   ),
-    .l15_rtrn_i            ( l15_rtrn_i                  ),
-`else
     // memory side
-    .axi_req_o             ( axi_req_o                   ),
-    .axi_resp_i            ( axi_resp_i                  ),
-`endif
+    .noc_req_o             ( noc_req_o                   ),
+    .noc_resp_i            ( noc_resp_i                  ),
     .inval_addr_i          ( inval_addr                  ),
     .inval_valid_i         ( inval_valid                 ),
     .inval_ready_o         ( inval_ready                 )
@@ -799,16 +880,13 @@ module cva6 import ariane_pkg::*; #(
     // note: this only works with one cacheable region
     // not as important since this cache subsystem is about to be
     // deprecated
-    .cva6_cfg              ( cva6_cfg                    ),
+    .CVA6Cfg               ( CVA6Cfg                     ),
     .ArianeCfg             ( ArianeCfg                   ),
-    .AxiAddrWidth          ( AxiAddrWidth                ),
-    .AxiDataWidth          ( AxiDataWidth                ),
-    .AxiIdWidth            ( AxiIdWidth                  ),
     .axi_ar_chan_t         ( axi_ar_chan_t               ),
     .axi_aw_chan_t         ( axi_aw_chan_t               ),
     .axi_w_chan_t          ( axi_w_chan_t                ),
-    .axi_req_t             ( axi_req_t                   ),
-    .axi_rsp_t             ( axi_rsp_t                   )
+    .axi_req_t             ( noc_req_t                   ),
+    .axi_rsp_t             ( noc_resp_t                  )
   ) i_cache_subsystem (
     // to D$
     .clk_i                 ( clk_i                       ),
@@ -836,8 +914,8 @@ module cva6 import ariane_pkg::*; #(
     .dcache_req_ports_i    ( dcache_req_ports_ex_cache   ),
     .dcache_req_ports_o    ( dcache_req_ports_cache_ex   ),
     // memory side
-    .axi_req_o             ( axi_req_o                   ),
-    .axi_resp_i            ( axi_resp_i                  )
+    .axi_req_o             ( noc_req_o                   ),
+    .axi_resp_i            ( noc_resp_i                  )
   );
   assign dcache_commit_wbuffer_not_ni = 1'b1;
   assign inval_ready                  = 1'b1;
@@ -848,14 +926,21 @@ module cva6 import ariane_pkg::*; #(
   // ----------------
 
   if (ENABLE_ACCELERATOR) begin: gen_accelerator
-    acc_pkg::accelerator_req_t acc_req;
-
-    acc_dispatcher i_acc_dispatcher (
+    acc_dispatcher #(
+      .CVA6Cfg    ( CVA6Cfg      ),
+      .acc_cfg_t  ( acc_cfg_t    ),
+      .AccCfg     ( AccCfg       ),
+      .acc_req_t  ( cvxif_req_t  ),
+      .acc_resp_t ( cvxif_resp_t )
+    ) i_acc_dispatcher (
       .clk_i                  ( clk_i                        ),
       .rst_ni                 ( rst_ni                       ),
       .flush_unissued_instr_i ( flush_unissued_instr_ctrl_id ),
       .flush_ex_i             ( flush_ctrl_ex                ),
+      .flush_pipeline_o       ( flush_acc                    ),
       .acc_cons_en_i          ( acc_cons_en_csr              ),
+      .acc_fflags_valid_o     ( acc_resp_fflags_valid        ),
+      .acc_fflags_o           ( acc_resp_fflags              ),
       .fcsr_frm_i             ( frm_csr_id_issue_ex          ),
       .dirty_v_state_o        ( dirty_v_state                ),
       .issue_instr_i          ( issue_instr_id_acc           ),
@@ -870,25 +955,16 @@ module cva6 import ariane_pkg::*; #(
       .acc_exception_o        ( acc_exception_ex_id          ),
       .acc_valid_ex_o         ( acc_valid_acc_ex             ),
       .commit_ack_i           ( commit_ack                   ),
+      .acc_stall_st_pending_o ( stall_st_pending_ex          ),
       .acc_no_st_pending_i    ( no_st_pending_commit         ),
+      .dcache_req_ports_i     ( dcache_req_ports_ex_cache    ),
       .ctrl_halt_o            ( halt_acc_ctrl                ),
-      .acc_req_o              ( acc_req                      ),
+      .inval_ready_i          ( inval_ready                  ),
+      .inval_valid_o          ( inval_valid                  ),
+      .inval_addr_o           ( inval_addr                   ),
+      .acc_req_o              ( cvxif_req_o                  ),
       .acc_resp_i             ( cvxif_resp_i                 )
     );
-
-    assign acc_resp_fflags = cvxif_resp_i.fflags;
-    assign acc_resp_fflags_valid = cvxif_resp_i.fflags_valid;
-
-    // Pack invalidation interface into accelerator interface
-    always_comb begin : pack_inval
-      inval_valid             = cvxif_resp_i.inval_valid;
-      inval_addr              = cvxif_resp_i.inval_addr;
-      cvxif_req_o             = acc_req;
-      cvxif_req_o.inval_ready = inval_ready;
-    end
-
-    // Tie off cvxif
-    assign cvxif_resp = '0;
   end : gen_accelerator else begin: gen_no_accelerator
     assign acc_trans_id_ex_id    = '0;
     assign acc_result_ex_id      = '0;
@@ -900,6 +976,8 @@ module cva6 import ariane_pkg::*; #(
     assign dirty_v_state         = '0;
     assign acc_valid_acc_ex      = '0;
     assign halt_acc_ctrl         = '0;
+    assign stall_st_pending_ex   = '0;
+    assign flush_acc             = '0;
 
     // No invalidation interface
     assign inval_valid = '0;
@@ -929,10 +1007,10 @@ module cva6 import ariane_pkg::*; #(
 
   logic        piton_pc_vld;
   logic [riscv::VLEN-1:0] piton_pc;
-  logic [NR_COMMIT_PORTS-1:0][riscv::VLEN-1:0] pc_data;
-  logic [NR_COMMIT_PORTS-1:0] pc_pop, pc_empty;
+  logic [CVA6Cfg.NrCommitPorts-1:0][riscv::VLEN-1:0] pc_data;
+  logic [CVA6Cfg.NrCommitPorts-1:0] pc_pop, pc_empty;
 
-  for (genvar i = 0; i < NR_COMMIT_PORTS; i++) begin : gen_pc_fifo
+  for (genvar i = 0; i < CVA6Cfg.NrCommitPorts; i++) begin : gen_pc_fifo
     fifo_v3 #(
       .DATA_WIDTH(64),
       .DEPTH(PC_QUEUE_DEPTH))
@@ -952,7 +1030,7 @@ module cva6 import ariane_pkg::*; #(
   end
 
   rr_arb_tree #(
-    .NumIn(NR_COMMIT_PORTS),
+    .NumIn(CVA6Cfg.NrCommitPorts),
     .DataWidth(64))
   i_rr_arb_tree (
     .clk_i   ( clk_i        ),
@@ -1036,7 +1114,7 @@ module cva6 import ariane_pkg::*; #(
         default: ; // Do nothing
         endcase
       end
-      for (int i = 0; i < NR_COMMIT_PORTS; i++) begin
+      for (int i = 0; i < CVA6Cfg.NrCommitPorts; i++) begin
         if (commit_ack[i] && !commit_instr_id_commit[i].ex.valid) begin
           $fwrite(f, "%d 0x%0h %s (0x%h) DASM(%h)\n", cycles, commit_instr_id_commit[i].pc, mode, commit_instr_id_commit[i].ex.tval[31:0], commit_instr_id_commit[i].ex.tval[31:0]);
         end else if (commit_ack[i] && commit_instr_id_commit[i].ex.valid) begin
@@ -1061,9 +1139,9 @@ module cva6 import ariane_pkg::*; #(
 `endif // VERILATOR
 //pragma translate_on
 
-  if (ariane_pkg::RVFI) begin
+  if (CVA6Cfg.IsRVFI) begin
     always_comb begin
-      for (int i = 0; i < NR_COMMIT_PORTS; i++) begin
+      for (int i = 0; i < CVA6Cfg.NrCommitPorts; i++) begin
         logic exception, mem_exception;
         exception = commit_instr_id_commit[i].valid && ex_commit.valid;
         mem_exception = exception &&

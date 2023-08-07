@@ -16,13 +16,14 @@
 // change request from the back-end and does branch prediction.
 
 module frontend import ariane_pkg::*; #(
-  parameter ariane_pkg::cva6_cfg_t cva6_cfg = ariane_pkg::cva6_cfg_empty,
+  parameter ariane_pkg::cva6_cfg_t CVA6Cfg = ariane_pkg::cva6_cfg_empty,
   parameter ariane_pkg::ariane_cfg_t ArianeCfg = ariane_pkg::ArianeDefaultConfig
 ) (
   input  logic               clk_i,              // Clock
   input  logic               rst_ni,             // Asynchronous reset active low
   input  logic               flush_i,            // flush request for PCGEN
   input  logic               flush_bp_i,         // flush branch prediction
+  input  logic               halt_i,             // halt commit stage
   input  logic               debug_mode_i,
   // global input
   input  logic [riscv::VLEN-1:0]        boot_addr_i,
@@ -39,8 +40,8 @@ module frontend import ariane_pkg::*; #(
   input  logic               ex_valid_i,         // exception is valid - from commit
   input  logic               set_debug_pc_i,     // jump to debug address
   // Instruction Fetch
-  output icache_dreq_i_t     icache_dreq_o,
-  input  icache_dreq_o_t     icache_dreq_i,
+  output icache_dreq_t     icache_dreq_o,
+  input  icache_drsp_t     icache_dreq_i,
   // instruction output port -> to processor back-end
   output fetch_entry_t       fetch_entry_o,       // fetch entry containing all relevant data for the ID stage
   output logic               fetch_entry_valid_o, // instruction in IF is valid
@@ -112,7 +113,7 @@ module frontend import ariane_pkg::*; #(
     logic serving_unaligned;
     // Re-align instructions
     instr_realign #(
-      .cva6_cfg   ( cva6_cfg   )
+      .CVA6Cfg   ( CVA6Cfg   )
     ) i_instr_realign (
       .clk_i               ( clk_i                 ),
       .rst_ni              ( rst_ni                ),
@@ -338,12 +339,14 @@ module frontend import ariane_pkg::*; #(
       // 6. Pipeline Flush because of CSR side effects
       // On a pipeline flush start fetching from the next address
       // of the instruction in the commit stage
-      // we came here from a flush request of a CSR instruction or AMO,
-      // as CSR or AMO instructions do not exist in a compressed form
+      // we either came here from a flush request of a CSR instruction or AMO,
+      // so as CSR or AMO instructions do not exist in a compressed form
       // we can unconditionally do PC + 4 here
+      // or if the commit stage is halted, just take the current pc of the
+      // instruction in the commit stage
       // TODO(zarubaf) This adder can at least be merged with the one in the csr_regfile stage
       if (set_pc_commit_i) begin
-        npc_d = pc_commit_i + {{riscv::VLEN-3{1'b0}}, 3'b100};
+        npc_d = pc_commit_i + (halt_i ? '0 : {{riscv::VLEN-3{1'b0}}, 3'b100});
       end
       // 7. Debug
       // enter debug on a hard-coded base-address

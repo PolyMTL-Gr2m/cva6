@@ -15,7 +15,7 @@
 
 
 module ex_stage import ariane_pkg::*; #(
-    parameter ariane_pkg::cva6_cfg_t cva6_cfg = ariane_pkg::cva6_cfg_empty,
+    parameter ariane_pkg::cva6_cfg_t CVA6Cfg = ariane_pkg::cva6_cfg_empty,
     parameter int unsigned ASID_WIDTH = 1,
     parameter ariane_pkg::ariane_cfg_t ArianeCfg = ariane_pkg::ArianeDefaultConfig
 ) (
@@ -66,6 +66,7 @@ module ex_stage import ariane_pkg::*; #(
     input  logic                                   lsu_commit_i,
     output logic                                   lsu_commit_ready_o, // commit queue is ready to accept another commit request
     input  logic [TRANS_ID_BITS-1:0]               commit_tran_id_i,
+    input  logic                                   stall_st_pending_i,
     output logic                                   no_st_pending_o,
     input  logic                                   amo_valid_commit_i,
     // FPU
@@ -103,8 +104,8 @@ module ex_stage import ariane_pkg::*; #(
     input  logic [riscv::PPNW-1:0]                 satp_ppn_i,
     input  logic [ASID_WIDTH-1:0]                  asid_i,
     // icache translation requests
-    input  icache_areq_o_t                         icache_areq_i,
-    output icache_areq_i_t                         icache_areq_o,
+    input  icache_arsp_t                         icache_areq_i,
+    output icache_areq_t                         icache_areq_o,
 
     // interface to dcache
     input  dcache_req_o_t [2:0]                    dcache_req_ports_i,
@@ -169,7 +170,7 @@ module ex_stage import ariane_pkg::*; #(
     assign alu_data = (alu_valid_i | branch_valid_i) ? fu_data_i  : '0;
 
     alu #(
-        .cva6_cfg   ( cva6_cfg   )
+        .CVA6Cfg   ( CVA6Cfg   )
     ) alu_i (
         .clk_i,
         .rst_ni,
@@ -182,7 +183,7 @@ module ex_stage import ariane_pkg::*; #(
     // we don't silence the branch unit as this is already critical and we do
     // not want to add another layer of logic
     branch_unit #(
-        .cva6_cfg   ( cva6_cfg   )
+        .CVA6Cfg   ( CVA6Cfg   )
     ) branch_unit_i (
         .clk_i,
         .rst_ni,
@@ -203,7 +204,7 @@ module ex_stage import ariane_pkg::*; #(
 
     // 3. CSR (sequential)
     csr_buffer #(
-        .cva6_cfg   ( cva6_cfg   )
+        .CVA6Cfg   ( CVA6Cfg   )
     ) csr_buffer_i (
         .clk_i,
         .rst_ni,
@@ -246,7 +247,7 @@ module ex_stage import ariane_pkg::*; #(
     assign mult_data  = mult_valid_i ? fu_data_i  : '0;
 
     mult #(
-        .cva6_cfg   ( cva6_cfg   )
+        .CVA6Cfg   ( CVA6Cfg   )
     ) i_mult (
         .clk_i,
         .rst_ni,
@@ -300,13 +301,14 @@ module ex_stage import ariane_pkg::*; #(
     assign lsu_data  = lsu_valid_i ? fu_data_i  : '0;
 
     load_store_unit #(
-        .cva6_cfg   ( cva6_cfg   ),
+        .CVA6Cfg    ( CVA6Cfg    ),
         .ASID_WIDTH ( ASID_WIDTH ),
         .ArianeCfg ( ArianeCfg )
     ) lsu_i (
         .clk_i,
         .rst_ni,
         .flush_i,
+        .stall_st_pending_i,
         .no_st_pending_o,
         .fu_data_i             ( lsu_data ),
         .lsu_ready_o,
@@ -357,11 +359,12 @@ module ex_stage import ariane_pkg::*; #(
         fu_data_t cvxif_data;
         assign cvxif_data  = x_valid_i ? fu_data_i  : '0;
         cvxif_fu #(
-            .cva6_cfg   ( cva6_cfg   )
+            .CVA6Cfg   ( CVA6Cfg   )
         ) cvxif_fu_i (
             .clk_i,
             .rst_ni,
             .fu_data_i,
+            .priv_lvl_i (ld_st_priv_lvl_i),
             .x_valid_i,
             .x_ready_o,
             .x_off_instr_i,

@@ -31,12 +31,25 @@ package ariane_pkg;
     // This is the new user config interface system. If you need to parameterize something
     // within Ariane add a field here and assign a default value to the config. Please make
     // sure to add a propper parameter check to the `check_cfg` function.
+    localparam int unsigned ILEN = 32;
+    localparam int unsigned NRET = 1;
+
     typedef struct packed {
-      int unsigned dummy;
+      int unsigned NrCommitPorts;
+      int unsigned IsRVFI;
+      int unsigned AxiAddrWidth;
+      int unsigned AxiDataWidth;
+      int unsigned AxiIdWidth;
+      int unsigned AxiUserWidth;
     } cva6_cfg_t;
 
     localparam cva6_cfg_t cva6_cfg_empty = {
-      '0
+      unsigned'(0),  // NrCommitPorts
+      unsigned'(0),  // IsRVFI
+      unsigned'(0),  // AxiAddrWidth
+      unsigned'(0),  // AxiDataWidth
+      unsigned'(0),  // AxiIdWidth
+      unsigned'(0)   // AxiUserWidth
     };
 
     localparam NrMaxRules = 16;
@@ -104,7 +117,7 @@ package ariane_pkg;
     function automatic logic range_check(logic[63:0] base, logic[63:0] len, logic[63:0] address);
       // if len is a power of two, and base is properly aligned, this check could be simplified
       // Extend base by one bit to prevent an overflow.
-      return (address >= base) && (address < (65'(base)+len));
+      return (address >= base) && (({1'b0, address}) < (65'(base)+len));
     endfunction : range_check
 
     function automatic logic is_inside_nonidempotent_regions (ariane_cfg_t Cfg, logic[63:0] address);
@@ -141,7 +154,6 @@ package ariane_pkg;
                                                       // to uniquely identify the entry in the scoreboard
     localparam ASID_WIDTH    = (riscv::XLEN == 64) ? 16 : 1;
     localparam BITS_SATURATION_COUNTER = 2;
-    localparam NR_COMMIT_PORTS = cva6_config_pkg::CVA6ConfigNrCommitPorts;
 
     localparam ENABLE_RENAME = cva6_config_pkg::CVA6ConfigRenameEn;
 
@@ -298,15 +310,14 @@ package ariane_pkg;
     // AXI
     // ---------------
 
-    localparam AXI_ID_WIDTH = cva6_config_pkg::CVA6ConfigAxiIdWidth;
-    localparam AXI_ADDR_WIDTH = cva6_config_pkg::CVA6ConfigAxiAddrWidth;
-    localparam AXI_DATA_WIDTH = cva6_config_pkg::CVA6ConfigAxiDataWidth;
     localparam FETCH_USER_WIDTH = cva6_config_pkg::CVA6ConfigFetchUserWidth;
     localparam DATA_USER_WIDTH = cva6_config_pkg::CVA6ConfigDataUserWidth;
     localparam AXI_USER_EN = cva6_config_pkg::CVA6ConfigDataUserEn | cva6_config_pkg::CVA6ConfigFetchUserEn;
     localparam AXI_USER_WIDTH = cva6_config_pkg::CVA6ConfigDataUserWidth;
     localparam DATA_USER_EN = cva6_config_pkg::CVA6ConfigDataUserEn;
     localparam FETCH_USER_EN = cva6_config_pkg::CVA6ConfigFetchUserEn;
+
+    typedef enum logic { SINGLE_REQ, CACHE_LINE_REQ } ad_req_t;
 
     // ---------------
     // Fetch Stage
@@ -685,7 +696,6 @@ package ariane_pkg;
     // ---------------
 
     localparam RVFI = cva6_config_pkg::CVA6ConfigRvfiTrace;
-    typedef rvfi_pkg::rvfi_instr_t [NR_COMMIT_PORTS-1:0] rvfi_port_t;
 
     typedef struct packed {
         logic [riscv::VLEN-1:0]   pc;            // PC of instruction
@@ -786,12 +796,12 @@ package ariane_pkg;
         logic                     fetch_valid;     // address translation valid
         logic [riscv::PLEN-1:0]   fetch_paddr;     // physical address in
         exception_t               fetch_exception; // exception occurred during fetch
-    } icache_areq_i_t;
+    } icache_areq_t;
 
     typedef struct packed {
         logic                     fetch_req;       // address translation request
         logic [riscv::VLEN-1:0]   fetch_vaddr;     // virtual address out
-    } icache_areq_o_t;
+    } icache_arsp_t;
 
     // I$ data requests
     typedef struct packed {
@@ -800,7 +810,7 @@ package ariane_pkg;
         logic                     kill_s2;                // kill the last request
         logic                     spec;                   // request is speculative
         logic [riscv::VLEN-1:0]   vaddr;                  // 1st cycle: 12 bit index is taken for lookup
-    } icache_dreq_i_t;
+    } icache_dreq_t;
 
     typedef struct packed {
         logic                     ready;                  // icache is ready
@@ -809,7 +819,7 @@ package ariane_pkg;
         logic [FETCH_USER_WIDTH-1:0] user;                // User bits
         logic [riscv::VLEN-1:0]   vaddr;                  // virtual address out
         exception_t               ex;                     // we've encountered an exception
-    } icache_dreq_o_t;
+    } icache_drsp_t;
 
     // AMO request going to cache. this request is unconditionally valid as soon
     // as request goes high.
